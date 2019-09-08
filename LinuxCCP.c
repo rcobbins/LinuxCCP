@@ -10,13 +10,14 @@
  * PVWA API using incredibly privileged user (must have List 
  * Safe Members access for all Safes that require credentials
  * to be retrieved from and Audit Users authorization), due to 
- * the  * lack of PSDKWebserviceRequest method for any SDK that
+ * the lack of PSDKWebserviceRequest method for any SDK that
  * is supported on a non-Windows server environment
  *
  *********************************************************/
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <pthread.h>
 #include <netinet/in.h>
@@ -71,9 +72,9 @@ pthread_mutex_t lock_auth;
 pthread_mutex_t lock_num_request;
 pthread_mutex_t lock_kill;
 
-// De facto boolean value set to 1 when application ends. Used to
+// Boolean value set to 1 when application ends. Used to
 // kill authentication thread infinite loop
-int shutdown_app = 0;
+bool shutdown_app = false;
 
 // Tracker for number of requests
 int num_request = 0;
@@ -600,11 +601,11 @@ void load_authentication() {
  * for the AppIDs that are available
  */
 void *load_auth_thread_loop() {
-  int temp = 0;
+  bool temp = 0;
   // Loop until the application has been killed
   // Sleep for 60 seconds, then reload the authentication
   // methods
-  while (temp != 1) {
+  while (!temp) {
     // Wait for one minute
     sleep(60);
     load_authentication();
@@ -617,112 +618,22 @@ void *load_auth_thread_loop() {
 }
 
 /*
- * Lazy utility function to convert a CIDR bitmask
+ * Utility function to convert a CIDR bitmask
  * to its corresponding netmask string and return it
  */
 char *cidr_to_netmask(char *cidr) {
-  char *netmask;
+  uint32_t i_netmask;
+  struct in_addr netmask;
   char *end;
-  
-  switch(strtol(cidr, &end, 10)) {
-    case 1:
-      netmask = strdup("128.0.0.0");
-      break;
-    case 2:
-      netmask = strdup("192.0.0.0");
-      break;
-    case 3:
-      netmask = strdup("224.0.0.0");
-      break;
-    case 4:
-      netmask = strdup("240.0.0.0");
-      break;
-    case 5:
-      netmask = strdup("248.0.0.0");
-      break;
-    case 6:
-      netmask = strdup("252.0.0.0");
-      break;
-    case 7:
-      netmask = strdup("254.0.0.0");
-      break;
-    case 8:
-      netmask = strdup("255.0.0.0");
-      break;
-    case 9:
-      netmask = strdup("255.128.0.0");
-      break;
-    case 10:
-      netmask = strdup("255.192.0.0");
-      break;
-    case 11:
-      netmask = strdup("255.224.0.0");
-      break;
-    case 12:
-      netmask = strdup("255.240.0.0");
-      break;
-    case 13:
-      netmask = strdup("255.248.0.0");
-      break;
-    case 14:
-      netmask = strdup("255.252.0.0");
-      break;
-    case 15:
-      netmask = strdup("255.254.0.0");
-      break;
-    case 16:
-      netmask = strdup("255.255.0.0");
-      break;
-    case 17:
-      netmask = strdup("255.255.128.0");
-      break;
-    case 18:
-      netmask = strdup("255.255.192.0");
-      break;
-    case 19:
-      netmask = strdup("255.255.224.0");
-      break;
-    case 20:
-      netmask = strdup("255.255.240.0");
-      break;
-    case 21:
-      netmask = strdup("255.255.248.0");
-      break;
-    case 22:
-      netmask = strdup("255.255.252.0");
-      break;
-    case 23:
-      netmask = strdup("255.255.254.0");
-      break;
-    case 24:
-      netmask = strdup("255.255.255.0");
-      break;
-    case 25:
-      netmask = strdup("255.255.255.128");
-      break;
-    case 26:
-      netmask = strdup("255.255.255.192");
-      break;
-    case 27:
-      netmask = strdup("255.255.255.224");
-      break;
-    case 28:
-      netmask = strdup("255.255.255.240");
-      break;
-    case 29:
-      netmask = strdup("255.255.255.248");
-      break;
-    case 30:
-      netmask = strdup("255.255.255.252");
-      break;
-    case 31:
-      netmask = strdup("255.255.255.254");
-      break;
-    case 32:
-      netmask = strdup("255.255.255.255");
-      break;
-  }
-  return netmask;
+  int i_cidr = strtol(cidr, &end, 10);
+
+  i_netmask = 0xFFFFFFFF;
+  if (i_cidr < 32)
+    i_netmask <<= 32 - i_cidr;
+  i_netmask = htnol(i_netmask);
+  netmask.s_addr = i_netmask;
+
+  return inet_ntoa(netmask);
 }
 
 /***
@@ -736,7 +647,7 @@ char *cidr_to_netmask(char *cidr) {
  * to retrieve the requested password object. Returns non-zero if
  * successful.
  */
-int validate_appid_access(char *appid, char* safename, struct sockaddr *client_address, gnutls_x509_crt_t client_cert) {
+bool validate_appid_access(char *appid, char* safename, struct sockaddr *client_address, gnutls_x509_crt_t client_cert) {
   // Extract IP address from provided socket object
   struct sockaddr_in *address = (struct sockaddr_in *)client_address;
   char *ip_address = strdup(inet_ntoa(address->sin_addr));
@@ -747,7 +658,7 @@ int validate_appid_access(char *appid, char* safename, struct sockaddr *client_a
   size_t san_size=0;
   int app_index=-1;
   int res;
-  int valid=1;
+  bool valid=true;
 
   // Locate the provided AppID in the pre-loaded list of
   // authentication methods
@@ -762,7 +673,7 @@ int validate_appid_access(char *appid, char* safename, struct sockaddr *client_a
   // for Allowed Machines, loop through all allowed IP address and CIDR
   // ranges to determine if the requestor address matches any
   if (auth_methods_list[app_index].num_ip > 0) {
-    int ipfound=0;
+    bool ipfound=false;
 
     for(int i=0; i<auth_methods_list[app_index].num_ip; i++) {
       // Extract the address or CIDR range from the JSON object
@@ -774,7 +685,7 @@ int validate_appid_access(char *appid, char* safename, struct sockaddr *client_a
       // No CIDR range, so the extracted value is an IP address
       if(!strcmp(saveptr, "")) {
         if(!strcmp(ip_auth, ip_address)) {
-          ipfound=1;
+          ipfound=true;
           break;
         }
       }
@@ -788,13 +699,13 @@ int validate_appid_access(char *appid, char* safename, struct sockaddr *client_a
         inet_aton(ip_address, &requestor_ip);
         // Verify that the requestor IP address falls within the network address
         if((requestor_ip.s_addr & netmask_ip.s_addr) == (network_ip.s_addr & netmask_ip.s_addr)) {
-          ipfound=1;
+          ipfound=true;
           break;
         }
       }
     }
     if(!ipfound)
-      valid = 0;
+      valid = false;
   }
 
   // Extract the serial number from the presented mTLS certificate
@@ -806,17 +717,17 @@ int validate_appid_access(char *appid, char* safename, struct sockaddr *client_a
   // from the JSON object and validate against the presented mTLS certificate's
   // serial number
   if (auth_methods_list[app_index].num_serial > 0) {
-    int serialfound = 0;
+    bool serialfound = false;
     for (int i=0; i<auth_methods_list[app_index].num_serial; i++) {
       char *serial_number = strdup(json_string_value(json_object_get(auth_methods_list[app_index].serial[i], "AuthValue")));
 
       if(!strcmp(bin2hex(serial, size), serial_number)) {
-        serialfound = 1;
+        serialfound = true;
         break;
       }
     }
     if(!serialfound)
-      valid = 0;
+      valid = false;
   }
 
   // Locate the index of the Safe Member's list for the Safe
@@ -831,10 +742,10 @@ int validate_appid_access(char *appid, char* safename, struct sockaddr *client_a
   // Ensure there is at least one Safe Member for this Safe, then
   // validate that the AppID user has been added to the Safe
   if (safe_members_list[app_index].num_members > 0) {   
-    int safematch = 0;
+    bool safematch = false;
     for (int i=0; i<safe_members_list[app_index].num_members; i++) {
       if (!strcmp(json_string_value(json_object_get(safe_members_list[app_index].members[i], "UserName")), appid))
-        safematch = 1;
+        safematch = true;
     } 
   }
 
@@ -938,11 +849,11 @@ json_t *get_password(char *query) {
       }
       pVals = PSDK_GetAttribute(psdkResponse, "PasswordChangeInProcess");
       if (pVals) {
-        int pwdChange;
+        bool pwdChange;
 	      if (!strncmp(pVals[0], "true", strlen(pVals[0])))
-	        pwdChange = 1;
+	        pwdChange = true;
 	      else
-	        pwdChange = 0;
+	        pwdChange = false;
         json_object_set_new(response, "PasswordChangeInProcess", json_pack("b", pwdChange));
         PSDK_ReleaseAttributeData(&pVals);
       }
@@ -1091,7 +1002,7 @@ int c_get_password (const struct _u_request * request, struct _u_response * resp
     ulfius_set_string_body_response(response, 400, "Safe is a required query parameter\n\n");
   else {
     // Validate that the AppID used has appropriate access to the password that has been requested
-    int valid_appid = 0;
+    bool valid_appid = false;
     pthread_mutex_lock(&lock_auth);    
     valid_appid = validate_appid_access(str_appid, safename, request->client_address, request->client_cert);
     pthread_mutex_unlock(&lock_auth);
